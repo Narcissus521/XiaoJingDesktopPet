@@ -1,0 +1,13 @@
+settings.ini
+auth.json
+quota-snapshot.json
+weather-location.json
+cpu.json
+stop.flag
+runtime/
+diagnostics/
+input-recording/
+*.exe
+*.zip
+assets/
+sensors/
