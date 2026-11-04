@@ -9,8 +9,8 @@ using System.Windows.Forms;
 using System.Web.Script.Serialization;
 
 [assembly: System.Reflection.AssemblyTitle("XiaoJing Desktop Pet")]
-[assembly: System.Reflection.AssemblyVersion("3.11.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("3.11.0.0")]
+[assembly: System.Reflection.AssemblyVersion("3.12.1.0")]
+[assembly: System.Reflection.AssemblyFileVersion("3.12.1.0")]
 
 namespace XiaoJingDesktopPet
 {

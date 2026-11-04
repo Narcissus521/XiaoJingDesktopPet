@@ -18,16 +18,17 @@ namespace XiaoJingDesktopPet
         private bool AttentionActive {get{return attentionStarted>=0;}}
         private void ReleaseAttention()
         {
-            attentionStarted=-1;
+            ReleaseSceneAttention(); attentionStarted=-1;
             if(attentionTarget!=null){attentionTarget.Dispose();attentionTarget=null;}
             if(attentionSource!=null){attentionSource.Dispose();attentionSource=null;}
         }
         private void ReleaseLeisureMotion()
         {
-            ReleaseAttention();if(attentionMorph!=null){attentionMorph.Dispose();attentionMorph=null;attentionMorphIdentity=null;}if(leisureMotion!=null){leisureMotion.Dispose();leisureMotion=null;}
+            ReleaseScenePlayer(); ReleaseAttention();if(attentionMorph!=null){attentionMorph.Dispose();attentionMorph=null;attentionMorphIdentity=null;}if(leisureMotion!=null){leisureMotion.Dispose();leisureMotion=null;}
         }
         private bool EnsureLeisureMotion(string action)
         {
+            if(action=="tea"||action=="bubbles"||action=="fishing")return false;
             string outfit=ActionOutfitKey(),identity=outfit+"|"+action;
             if(leisureMotion!=null&&leisureMotion.Identity==identity)return true;
             if(leisureMotion!=null){leisureMotion.Dispose();leisureMotion=null;}
@@ -46,6 +47,8 @@ namespace XiaoJingDesktopPet
         {
             string action=SippingAt(now)?"tea":leisure;
             if(String.IsNullOrEmpty(action)||FeedingAt(now)||PettingAt(now)||StretchingAt(now)||LandingAt(now)||lifted||falling||activityBusy==true&&!SippingAt(now))return false;
+            if(SippingAt(now))return DrawWorkingTea(g,now);
+            if(SceneAction && action==leisure)return DrawSceneAction(g,now);
             if(!EnsureLeisureMotion(action))return false;
             long elapsed=SippingAt(now)?6000-(teaUntil-now):now-leisureStarted;
             g.DrawImage(leisureMotion.Frame(elapsed,0),new Rectangle(8,122,256,208));return true;
@@ -60,7 +63,9 @@ namespace XiaoJingDesktopPet
         }
         private void BeginAttention(long now)
         {
-            if(AttentionActive||String.IsNullOrEmpty(leisure)||!EnsureLeisureMotion(leisure)||!PrepareAttentionMorph())return;
+            if(AttentionActive||String.IsNullOrEmpty(leisure))return;
+            if(SceneAction){BeginSceneAttention(now);return;}
+            if(!EnsureLeisureMotion(leisure)||!PrepareAttentionMorph())return;
             string loop=CurrentLoopKey();Image idle;if(!images.TryGetValue("loops/"+loop+"/frame-00",out idle))return;
             ReleaseAttention();attentionStarted=now;attentionPoseTime=now-leisureStarted;attentionOutfit=ActionOutfitKey();attentionLoop=loop;
             attentionTarget=new Bitmap(272,208,PixelFormat.Format32bppPArgb);attentionSource=new Bitmap(272,208,PixelFormat.Format32bppPArgb);
@@ -71,11 +76,13 @@ namespace XiaoJingDesktopPet
         {
             if(!AttentionActive)return;
             if(activityBusy==true||ActionOutfitKey()!=attentionOutfit||CurrentLoopKey()!=attentionLoop){ReleaseAttention();return;}
-            if(now-attentionStarted>=720){leisure="";biteAt=-10000;nextLeisureAt=now+18000;nextWanderAt=now+18000;lookUntil=now+1800;ReleaseAttention();}
+            if(now-attentionStarted>=720){StopSceneAction(now);leisure="";biteAt=-10000;nextLeisureAt=now+18000;nextWanderAt=now+18000;lookUntil=now+1800;ReleaseAttention();}
         }
         private bool DrawAttention(Graphics g,long now)
         {
-            if(!AttentionActive||leisureMotion==null||attentionTarget==null)return false;
+            if(!AttentionActive)return false;
+            if(sceneAttention)return DrawSceneAttention(g,now);
+            if(leisureMotion==null||attentionTarget==null)return false;
             double elapsed=Math.Max(0,now-attentionStarted),away=WalkSmooth(elapsed/340),mix=WalkSmooth((elapsed-280)/440);
             using(Graphics paint=Graphics.FromImage(attentionSource)){
                 paint.Clear(Color.Transparent);paint.DrawImageUnscaled(leisureMotion.Frame(attentionPoseTime+(long)(elapsed*.2),away),8,0);

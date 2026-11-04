@@ -56,6 +56,18 @@ namespace XiaoJingDesktopPet
             BitmapData data=Output.LockBits(new Rectangle(0,0,Width,Height),ImageLockMode.WriteOnly,PixelFormat.Format32bppPArgb);
             try{Marshal.Copy(target,0,data.Scan0,target.Length);}finally{Output.UnlockBits(data);}return Output;
         }
+        internal PointF FollowSourcePoint(PointF original)
+        {
+            PointF result=original;
+            for(int pass=0;pass<5;pass++){
+                int x=Math.Max(0,Math.Min(Width-2,(int)result.X)),y=Math.Max(0,Math.Min(Height-2,(int)result.Y));
+                float fx=Math.Max(0,Math.Min(1,result.X-x)),fy=Math.Max(0,Math.Min(1,result.Y-y));int i=y*Width+x;
+                float mx=(dx[i]*(1-fx)+dx[i+1]*fx)*(1-fy)+(dx[i+Width]*(1-fx)+dx[i+Width+1]*fx)*fy;
+                float my=(dy[i]*(1-fx)+dy[i+1]*fx)*(1-fy)+(dy[i+Width]*(1-fx)+dy[i+Width+1]*fx)*fy;
+                result=new PointF(original.X-mx,original.Y-my);
+            }
+            return result;
+        }
         private int Pixel(int x,int y){return x<0||x>=Width||y<0||y>=Height?0:source[y*Width+x];}
         private int Sample(float x,float y)
         {

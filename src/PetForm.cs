@@ -270,6 +270,7 @@ namespace XiaoJingDesktopPet
         {
             SuspendBackgroundPolling(e.CloseReason == CloseReason.WindowsShutDown);
             RemovePowerEvents();
+            StopSceneAction(animationClock.ElapsedMilliseconds);
             closed = true;
             animationTimer.Stop();
             telemetryTimer.Stop();
@@ -1291,6 +1292,8 @@ namespace XiaoJingDesktopPet
 
         private void DrawLaptop(Graphics graphics, long now)
         {
+            float teaOpacity = TeaLaptopOpacity(now);
+            if (teaOpacity <= 0) return;
             GraphicsState transitionState = graphics.Save();
             try
             {
@@ -1302,7 +1305,10 @@ namespace XiaoJingDesktopPet
             if (rearView) laptopBounds = new RectangleF(56, 217, 136, 83);
             if (rearView) { if (DrawTypingAt(now)) DrawTypingHands(graphics, now, laptop as Bitmap, laptopBounds); }
             else images.TryGetValue("props/laptop", out laptop);
-            if (laptop != null) graphics.DrawImage(laptop, laptopBounds);
+            if (laptop != null) {
+                if(teaOpacity >= .99999F) graphics.DrawImage(laptop, laptopBounds);
+                else using(var fade = new ImageAttributes()) { var color = new ColorMatrix(); color.Matrix33 = teaOpacity; fade.SetColorMatrix(color); graphics.DrawImage(laptop, Rectangle.Round(laptopBounds), 0, 0, laptop.Width, laptop.Height, GraphicsUnit.Pixel, fade); }
+            }
             else
             {
                 using (Brush screen = new SolidBrush(Color.FromArgb(55, 73, 99)))

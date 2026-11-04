@@ -45,17 +45,14 @@ namespace XiaoJingDesktopPet
                 using (Brush glow = new SolidBrush(AlphaColor(160, WorkingCuffColor().R, WorkingCuffColor().G, WorkingCuffColor().B))) for (int i = 0; i < 5; i++) g.FillEllipse(glow, 50 + i * 39, 168 + (float)Math.Sin(now / 250.0 + i) * 9, 5, 5);
                 Image food; if (activeHoliday != null && images.TryGetValue("food/" + activeHoliday, out food) && (now - leisureStarted) % 6000 >= 1800 && (now - leisureStarted) % 6000 < 4000) g.DrawImage(food, new RectangleF(123, 245, 33, 30));
             }
-            if (FishingAt(now))
+            if (FishingAt(now) && fishingCycle != null && !fishingCycle.CatchActive && !AttentionActive && now-leisureStarted >= SceneEntryDuration+FishingCycleState.CastDuration)
             {
                 PointF p = FloatPoint(); bool bite = now >= biteAt && now - biteAt < 3400;
                 float bob = bite ? (float)Math.Sin(now / 55.0) * 5 : (float)Math.Sin(now / 430.0) * 1.5F;
                 using (Pen ring = new Pen(AlphaColor(bite ? 220 : 90, 125, 203, 245), bite ? 2 : 1)) g.DrawEllipse(ring, p.X - 13, p.Y + 3, 26, 7);
                 if (bite) using (Font font = UiFont(12, FontStyle.Bold)) using (Brush signal = new SolidBrush(Color.FromArgb(249, 190, 69))) g.DrawString("!", font, signal, p.X + 7, p.Y - 32 + bob);
             }
-            if (now - caughtAt >= 0 && now - caughtAt < 2600)
-            {
-                Image fish; if (images.TryGetValue("life/fish-" + caughtType, out fish)) g.DrawImage(fish, new RectangleF(195, 236 - Math.Min(55, (now - caughtAt) / 22F), 49, 42));
-            }
+
         }
         private void ApplyLaptopTransition(Graphics g, long now)
         {

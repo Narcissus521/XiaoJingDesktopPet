@@ -71,7 +71,7 @@ namespace XiaoJingDesktopPet
             }
             return true;
         }
-        private void StopLeisure(long now) { ReleaseAttention(); leisure = ""; biteAt = -10000; nextLeisureAt = now + 25000; }
+        private void StopLeisure(long now) { StopSceneAction(now); ReleaseAttention(); leisure = ""; biteAt = -10000; nextLeisureAt = now + 25000; }
         private void InteractionPress(Point location, long now)
         {
             PauseHomeWalkForInteraction();
@@ -126,7 +126,7 @@ namespace XiaoJingDesktopPet
         }
         private void InteractionTick(long now)
         {
-            UpdateAttention(now);
+            TickSceneAction(now); UpdateAttention(now);
             if (leftPressed && !lifted && now - pressStarted >= 200 && InPetArea(pressLogical)) BeginLift(now);
             if (pendingPatAt >= 0 && now >= pendingPatAt)
             {
@@ -147,10 +147,10 @@ namespace XiaoJingDesktopPet
             if (activityBusy == true)
             {
                 if (now >= nextTeaAt && workStarted >= 0 && now - workStarted >= 900000 && !InteractionBlocksWork(now) && !FeedingAt(now))
-                { teaUntil = now + 6000; nextTeaAt = now + 900000; }
+                { teaUntil = now + TeaCycleTiming.WorkDuration; nextTeaAt = now + 900000; }
                 return;
             }
-            if (!String.IsNullOrEmpty(leisure) && now - leisureStarted > 22000) StopLeisure(now);
+            if (!String.IsNullOrEmpty(leisure) && now - leisureStarted > (leisure == "tea" ? SceneEntryDuration+TeaCycleTiming.Period*2 : 22000) && (fishingCycle == null || !fishingCycle.CatchActive)) { if(leisure == "tea") { if(!AttentionActive) BeginAttention(now); } else StopLeisure(now); }
             if (leisure == "leaf" && !leftPressed && !falling)
             {
                 Rectangle area = Screen.FromRectangle(Bounds).WorkingArea;
@@ -174,7 +174,7 @@ namespace XiaoJingDesktopPet
             if (activityBusy == true)
             {
                 if (!wasWorking) { workStarted = now; nextTeaAt = now + 900000; }
-                ReleaseAttention(); leisure = ""; closeLaptopStarted = -10000;
+                if (!String.IsNullOrEmpty(leisure)) StopLeisure(now); ReleaseAttention(); closeLaptopStarted = -10000;
             }
             else if (activityBusy == false) { workStarted = -10000; teaUntil = -10000; }
         }
@@ -186,7 +186,7 @@ namespace XiaoJingDesktopPet
         }
         private void ObserveLogicalPointer(PointF q, long now)
         {
-            bool near = q.X >= 18 && q.X <= 254 && q.Y >= 125 && q.Y <= 328 && (leisure != "fishing" || InHeadArea(q));
+            bool near = q.X >= 18 && q.X <= 254 && q.Y >= 125 && q.Y <= 328 && (leisure != "fishing" || q.X>=80 && q.X<=187 && q.Y>=180 && q.Y<=276);
             if (near && !pointerNear && !String.IsNullOrEmpty(leisure)) BeginAttention(now);
             pointerNear = near;
         }
@@ -202,25 +202,19 @@ namespace XiaoJingDesktopPet
         {
             if (returnFlying || activityBusy == true || lifted || falling || FeedingAt(now)) return;
             PauseHomeWalkForInteraction();
-            ReleaseAttention(); leisure = action; leisureStarted = now; leisureHomeX = Left; wanderRemaining = 0; walkUntil = 0;
+            StopLeisure(now); pointerNear = true; leisure = action; leisureStarted = now; leisureHomeX = Left; wanderRemaining = 0; walkUntil = 0;
             biteAt = action == "fishing" ? now + 5000 + random.Next(4500) : -10000;
-            nextLeisureAt = now + 45000 + random.Next(25000); EnsureLeisureMotion(action); PrepareAttentionMorph(); RenderWindow();
+            nextLeisureAt = now + 45000 + random.Next(25000); StartSceneAction(now); if (!SceneAction) { EnsureLeisureMotion(action); PrepareAttentionMorph(); } RenderWindow();
         }
-        private bool FishingAt(long now) { return leisure == "fishing" && !lifted && !falling && now >= leisureStarted; }
-        private PointF FloatPoint() { PointF p; return fishingHotspots.TryGetValue(ActionOutfitKey(), out p) ? p : new PointF(222, 286); }
+        private bool FishingAt(long now) { return leisure == "fishing" && !AttentionActive && !lifted && !falling && now >= leisureStarted; }
+        private PointF FloatPoint() { if (leisure == "fishing") return SceneFloatPoint(); PointF p; return fishingHotspots.TryGetValue(ActionOutfitKey(), out p) ? p : new PointF(222, 286); }
         private bool TryLifeClick(Point location, long now)
         {
             PointF p = LogicalPoint(location), f = FloatPoint();
             if (FishingAt(now) && Math.Abs(p.X - f.X) <= 18 && Math.Abs(p.Y - f.Y) <= 22)
             {
                 suppressClickUntil = now + SystemInformation.DoubleClickTime; pendingPatAt = -1;
-                if (now >= biteAt && now - biteAt < 3400)
-                {
-                    int roll = random.Next(100); caughtType = roll < 40 ? 0 : roll < 65 ? 1 : roll < 82 ? 2 : roll < 92 ? 3 : roll < 98 ? 4 : 5;
-                    if (fishCollection[caughtType] < 9999) fishCollection[caughtType]++;
-                    caughtAt = now; mood = Clamp(mood + 6, 0, 100); StopLeisure(now); SaveSettings();
-                }
-                else if (now > biteAt + 3400) { biteAt = now + 3000 + random.Next(2500); }
+                HookSceneFish(now);
                 RenderWindow(); return true;
             }
             return false;
@@ -300,6 +294,7 @@ namespace XiaoJingDesktopPet
             if (now - caughtAt >= 0 && now - caughtAt < 2600) return "钓到" + FishNames[caughtType] + "！已放进收藏鱼缸";
             if (SippingAt(now)) return "工作久了，喝口茶再继续～";
             if (AttentionActive || now < lookUntil) return "你来啦～抬头看看你";
+            string sceneHint = SceneActionHint(now); if (sceneHint != null) return sceneHint;
             switch (leisure) { case "fishing": return now >= biteAt && now - biteAt < 3400 ? "浮漂动啦！点右下角浮漂～" : "等鱼儿咬钩～浮漂抖动时点击"; case "book": return "翻翻书，陪你安静待一会儿～"; case "bubbles": return "呼～吹一串小泡泡"; case "nap": return "抱着靠垫，眯一小会儿…"; case "tea": return "捧起茶杯，喝一小口～"; case "rain": return "伸手接一滴雨～"; case "leaf": return "追一片被风吹走的落叶～"; case "sun": return "晒晒太阳，好暖和～"; case "festival": return "穿上今天的装扮，和你过节～"; default: return null; }
         }
         private void LoadActionAssets(string assets)

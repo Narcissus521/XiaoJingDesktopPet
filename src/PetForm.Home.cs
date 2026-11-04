@@ -154,9 +154,10 @@ namespace XiaoJingDesktopPet
             homeWalkPosition += step*(distance < 0 ? -1 : 1);
             Location = new Point((int)Math.Round(homeWalkPosition),home.Y); walkUntil = now+100;
         }
-        private void PauseHomeMotion(long now) { motionPausedAt = now; }
+        private void PauseHomeMotion(long now) { motionPausedAt = now; PauseSceneActions(now); }
         private void ResumeHomeMotion(long now)
         {
+            ResumeSceneActions(now);
             if (motionPausedAt < 0) return; long paused = Math.Max(0,now-motionPausedAt); motionPausedAt = -1;
             if (returnFlying) flightStarted += paused;
             if (homeWalking) { homeWalkStarted += paused; homeWalkPhaseStarted += paused; }
