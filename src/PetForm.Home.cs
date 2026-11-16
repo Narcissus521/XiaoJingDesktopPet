@@ -131,7 +131,10 @@ namespace XiaoJingDesktopPet
                 homeWalking = true; homeWalkPending = false; homeWalkStarted = now;
                 homeWalkPhase = 0; homeWalkPhaseStarted = now;
                 homeWalkStartX = homeWalkPosition = Left; homeWalkSpeed = 0;
-                homeWalkTotalDistance = length; homeWalkCycles = Math.Max(1,Math.Ceiling(length/(36*scale)));
+                // The new authored legs have a longer step than the former
+                // compact rig. Match their cadence instead of rapidly replaying
+                // the full body cycle for every36 logical pixels.
+                homeWalkTotalDistance = length; homeWalkCycles = Math.Max(1,Math.Ceiling(length/(96*scale)));
                 closeLaptopStarted = stretchStarted = -10000; StopLeisure(now); wanderRemaining = 0;
             }
             if (homeWalkPhase == 0) {
@@ -161,6 +164,7 @@ namespace XiaoJingDesktopPet
             if (motionPausedAt < 0) return; long paused = Math.Max(0,now-motionPausedAt); motionPausedAt = -1;
             if (returnFlying) flightStarted += paused;
             if (homeWalking) { homeWalkStarted += paused; homeWalkPhaseStarted += paused; }
+            if (wanderPhase > 0) wanderPhaseStarted += paused;
             if (homeWalkPending) homeWalkAfter += paused;
             if (landStarted >= 0) landStarted += paused;
             if (flightLandingStarted >= 0) flightLandingStarted += paused;

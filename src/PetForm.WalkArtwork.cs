@@ -25,7 +25,7 @@ namespace XiaoJingDesktopPet
             try{
                 sideWalkingRig=new WalkingRig(root);
                 for(int i=0;i<2;i++)using(var source=new Bitmap(Path.Combine(root,(i==0?"turn-in-":"turn-out-")+direction+".png"))){
-                    if(source.Width!=2176||source.Height!=832)throw new InvalidDataException("Invalid walking turn atlas.");
+                    if(source.Width!=2176||source.Height!=1040)throw new InvalidDataException("Invalid walking turn atlas.");
                     sideWalkSheets[i]=new Bitmap(source.Width,source.Height,PixelFormat.Format32bppPArgb);
                     using(Graphics g=Graphics.FromImage(sideWalkSheets[i])){g.CompositingMode=System.Drawing.Drawing2D.CompositingMode.SourceCopy;g.DrawImageUnscaled(source,0,0);}
                 }
@@ -42,7 +42,7 @@ namespace XiaoJingDesktopPet
         private double WalkCycle {get{return homeWalkTotalDistance<=0?0:Math.Abs(homeWalkPosition-homeWalkStartX)/homeWalkTotalDistance*homeWalkCycles;}}
         private void DrawWalkTurn(Graphics g,int sheet,double progress)
         {
-            int frame=Clamp((int)Math.Round(Math.Max(0,Math.Min(1,progress))*24),0,24);
+            int frame=Clamp((int)Math.Round(Math.Max(0,Math.Min(1,progress))*32),0,32);
             g.DrawImage(sideWalkSheets[sheet],new Rectangle(0,122,272,208),new Rectangle(frame%8*272,frame/8*208,272,208),GraphicsUnit.Pixel);
         }
         private void DrawHomeWalking(Graphics g,Image fallback,long now)

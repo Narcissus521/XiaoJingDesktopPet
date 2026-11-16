@@ -42,6 +42,7 @@ namespace XiaoJingDesktopPet
             Controls.Add(save); Controls.Add(cancel);
             AcceptButton = save; CancelButton = cancel;
             Shown += delegate { input.Focus(); input.SelectAll(); };
+            PetTheme.StyleDialog(this);
         }
 
         public static bool TryNormalize(string name, out string normalized)

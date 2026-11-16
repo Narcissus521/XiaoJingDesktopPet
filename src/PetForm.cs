@@ -119,6 +119,7 @@ namespace XiaoJingDesktopPet
             RefreshHolidayDate(true);
             ClientSize = ScaledSize();
             BuildMenu();
+            PetTheme.StyleMenu(petMenu);
             BuildTrayIcon();
             if (!hasSavedLocation)
             {
@@ -182,7 +183,6 @@ namespace XiaoJingDesktopPet
             base.OnMouseDown(e);
             if (e.Button != MouseButtons.Left) return;
             RecordInputEvent("down", e.Location);
-            if (TryLifeClick(e.Location, animationClock.ElapsedMilliseconds)) return;
             Point cursor = Cursor.Position;
             dragOffset = new Point(cursor.X - Left, cursor.Y - Top);
             pressCursor = cursor;
@@ -196,7 +196,7 @@ namespace XiaoJingDesktopPet
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
-            if (!leftPressed) return;
+            if (!leftPressed || pressOnFloat) return;
             RecordInputEvent("move", e.Location);
             Point cursor = Cursor.Position;
             if (!dragging)
@@ -225,6 +225,7 @@ namespace XiaoJingDesktopPet
             base.OnMouseUp(e);
             if (e.Button == MouseButtons.Left)
             {
+                if (!leftPressed) return;
                 RecordInputEvent("up", e.Location);
                 bool didDrag = dragging;
                 InteractionRelease(e.Location, animationClock.ElapsedMilliseconds, didDrag, false);
@@ -359,9 +360,10 @@ namespace XiaoJingDesktopPet
                 return;
             }
             bool wasWorking = lastConfirmedWorking == true;
+            if (wasWorking && (desktopOpen == false || busy == false)) CaptureWorkFinish(animationClock.ElapsedMilliseconds);
             activityBusy = desktopOpen == false ? false : busy;
             if (activityBusy.HasValue) lastConfirmedWorking = activityBusy;
-            if (wasWorking && activityBusy == false && desktopOpen == true) finishQueuedAt = animationClock.ElapsedMilliseconds;
+            if (wasWorking && activityBusy == false) finishQueuedAt = animationClock.ElapsedMilliseconds;
             if (activityBusy == true) { finishQueuedAt = -1; stretchStarted = -10000; }
             ObserveWorkingTransition(wasWorking, animationClock.ElapsedMilliseconds);
             activityDesktopOpen = desktopOpen;
@@ -765,6 +767,11 @@ namespace XiaoJingDesktopPet
             mood = Clamp(mood + 3, 0, 100); fullness = Clamp(fullness + 10, 0, 100); StopLeisure(animationClock.ElapsedMilliseconds);
             pendingPatAt = -1; petStarted = -10000; stretchStarted = -10000; landStarted = -10000; closeLaptopStarted = -10000;
             feedStarted = animationClock.ElapsedMilliseconds;
+            // A work-tea scene must not resume halfway through a cup gesture
+            // after feeding, or paint a second body underneath the food.
+            if (SippingAt(feedStarted)) { teaUntil = -10000; ResetWorkTea(); }
+            if (returnFlying) { CatchHomeFlight(feedStarted); homeWalkPending = true; homeWalkAfter = feedStarted + FeedingDuration; }
+            flightLandingStarted = -10000;
             if (fishCount < Int32.MaxValue) fishCount++;
             wanderRemaining = 0;
             nextWanderAt = feedStarted + 20000;
@@ -828,36 +835,8 @@ namespace XiaoJingDesktopPet
             UpdateMotionCadence(now);
             double elapsed = Math.Min(0.1, Math.Max(0, (now - previousTick) / 1000.0));
             previousTick = now;
-            ApplyFallPhysics(now, elapsed); UpdateHomeFlight(now); UpdateHomeWalk(now, elapsed); ObservePointer(now);
-            if (wanderEnabled && activityBusy != true && !leftPressed && String.IsNullOrEmpty(leisure) && !InteractionBlocksWork(now) && !FeedingAt(now) && !petMenu.Visible)
-            {
-                if (wanderRemaining <= 0 && now >= nextWanderAt)
-                {
-                    walkDirection = random.Next(2) == 0 ? -1 : 1;
-                    wanderRemaining = 45 + random.Next(70);
-                    wanderPositionX = Left;
-                }
-                if (wanderRemaining > 0)
-                {
-                    Rectangle area = Screen.FromRectangle(Bounds).WorkingArea;
-                    double step = Math.Min(wanderRemaining, elapsed * 22 * sizePercent / 100.0);
-                    wanderPositionX += step * walkDirection;
-                    int x = (int)Math.Round(wanderPositionX);
-                    if (x <= area.Left || x >= area.Right - Width)
-                    {
-                        x = Clamp(x, area.Left, area.Right - Width);
-                        wanderRemaining = 0;
-                    }
-                    else wanderRemaining -= step;
-                    Location = new Point(x, Top);
-                    walkUntil = now + 150;
-                    if (wanderRemaining <= 0)
-                    {
-                        nextWanderAt = now + 20000 + random.Next(15000);
-                        SaveSettings();
-                    }
-                }
-            }
+            ApplyFallPhysics(now, elapsed); UpdateHomeFlight(now); UpdateHomeWalk(now, elapsed);
+            UpdateWandering(now, elapsed);
             RenderWindow();
         }
 
@@ -875,6 +854,8 @@ namespace XiaoJingDesktopPet
 
         private Image CurrentPetImage(long now)
         {
+            Image dragon = CharacterFrame(now);
+            if (dragon != null) return dragon;
             Image selected;
             Image interactionImage = InteractionImage(now);
             if (interactionImage != null) return interactionImage;
@@ -1032,6 +1013,7 @@ namespace XiaoJingDesktopPet
                 DrawLifeWorld(g, now);
                 if (activeHoliday == "christmas") DrawChristmasGifts(g);
                 Image pet = CurrentPetImage(now);
+                bool workScenePainted = false;
                 float offsetX, offsetY, angle;
                 PetPose(now, out offsetX, out offsetY, out angle);
                 GraphicsState petState = g.Save();
@@ -1039,29 +1021,33 @@ namespace XiaoJingDesktopPet
                 g.RotateTransform(angle);
                 g.TranslateTransform(-136, -226);
 
-                if (pet != null && returnFlying) DrawReturnFlight(g, pet, now);
+                if (pet != null && FeedingAt(now)) g.DrawImage(pet,new RectangleF(8,122,256,208));
+                else if (pet != null && returnFlying) DrawReturnFlight(g, pet, now);
                 else if (pet != null && FlightLandingAt(now)) DrawFlightLanding(g, now);
                 else if (pet != null && (lifted || falling)) DrawSuspendedAction(g, pet, now);
                 else if (pet != null && homeWalking) DrawHomeWalking(g, pet, now);
                 else if (DrawAttention(g, now)) { }
+                else if (WanderVisual) DrawWandering(g, now);
+                else if (workScenePainted = DrawWorkScene(g, now)) { }
+                else if (SippingAt(now) && (workScenePainted = DrawWorkingTea(g, now))) { }
                 else if (DrawLeisureMotion(g, now)) { }
                 else if (pet != null) g.DrawImage(pet, UsingActionArtwork(now) || activeHoliday == null && CurrentCondition() == "wind"
                     ? new RectangleF(8, 122, 256, 208)
                     : activeHoliday == null && IsWorkVisual(now) && CurrentCondition() == "sun" && CurrentSeverity() == 3 && pet.Width == 224
                         ? new RectangleF(24, 122, 224, 208) : new RectangleF(40, 122, 192, 208));
                 else DrawMissingPet(g, 0);
-                if (IsWorkVisual(now) || ClosingLaptopAt(now)) DrawLaptop(g, now);
+                if (!FeedingAt(now) && !workScenePainted && (IsWorkVisual(now) || ClosingLaptopAt(now))) DrawLaptop(g, now);
+                if (FeedingAt(now)) DrawFeeding(g, now - feedStarted);
                 g.Restore(petState);
                 DrawWeatherEffects(g, now, true);
                 DrawInteractionEffects(g, now);
-                if (FeedingAt(now)) DrawFeeding(g, now - feedStarted);
                 string hint = now - feedStarted >= 0 && now - feedStarted < FeedingDuration
                     ? "好吃！谢谢你的" + (activeHoliday == null ? "小鱼" : CurrentFoodName()) + " ♡"
                     : (dragging || now < walkUntil ? "陪你散步中…" : IsWorkVisual(now) ? "陪你工作中 · 双击投喂 · 右键菜单" : "单击摸头 · 按住提起 · 双击投喂");
                 hint = InteractionHint(now) ?? hint;
                 using (Font font = UiFont(7.2F, FontStyle.Regular))
-                using (Brush text = new SolidBrush(Color.FromArgb(244, 234, 241, 251)))
-                using (Brush background = new SolidBrush(Color.FromArgb(182, 34, 44, 69)))
+                using (Brush text = new SolidBrush(PetTheme.Text))
+                using (Brush background = new SolidBrush(PetTheme.Hint))
                 using (StringFormat format = CenterFormat())
                 {
                     RectangleF hintRect = activeHoliday == "christmas" ? new RectangleF(12, 331, 194, 17) : new RectangleF(24, 331, 224, 17);
@@ -1076,33 +1062,33 @@ namespace XiaoJingDesktopPet
         {
             RectangleF panel = new RectangleF(10, 7, 252, 109);
             using (GraphicsPath shadowPath = RoundRectangle(new RectangleF(12, 10, 250, 109), 16))
-            using (Brush shadow = new SolidBrush(Color.FromArgb(55, 10, 20, 34))) g.FillPath(shadow, shadowPath);
+            using (Brush shadow = new SolidBrush(PetTheme.Shadow)) g.FillPath(shadow, shadowPath);
             using (GraphicsPath path = RoundRectangle(panel, 16))
-            using (Brush fill = new SolidBrush(Color.FromArgb(240, 30, 42, 65)))
-            using (Pen border = new Pen(Color.FromArgb(128, 102, 146, 186), 1F))
+            using (Brush fill = new SolidBrush(PetTheme.Panel))
+            using (Pen border = new Pen(PetTheme.Border, 1F))
             {
                 g.FillPath(fill, path);
                 g.DrawPath(border, path);
             }
             using (Font titleFont = UiFont(9.3F, FontStyle.Bold))
-            using (Brush title = new SolidBrush(Color.FromArgb(240, 246, 251)))
+            using (Brush title = new SolidBrush(PetTheme.Text))
             using (StringFormat format = LeftFormat())
                 g.DrawString(petName + " · " + (activeHoliday == null ? services.CurrentWeatherLocation.Name : HolidayCalendar.GetName(activeHoliday)), titleFont, title, new RectangleF(22, 14, 159, 19), format);
             RectangleF badge = new RectangleF(187, 14, 62, 19);
             using (GraphicsPath path = RoundRectangle(badge, 8))
-            using (Brush badgeFill = new SolidBrush(Color.FromArgb(72, 83, 156, 193))) g.FillPath(badgeFill, path);
+            using (Brush badgeFill = new SolidBrush(PetTheme.Badge)) g.FillPath(badgeFill, path);
             using (Font badgeFont = UiFont(7.8F, FontStyle.Regular))
-            using (Brush badgeText = new SolidBrush(Color.FromArgb(190, 229, 248)))
+            using (Brush badgeText = new SolidBrush(PetTheme.Accent))
             using (StringFormat format = CenterFormat()) g.DrawString(displayMode == 1 ? "额度" : "硬件", badgeFont, badgeText, badge, format);
             using (Font weatherFont = UiFont(7.8F, FontStyle.Regular))
-            using (Brush weatherText = new SolidBrush(Color.FromArgb(161, 192, 215)))
+            using (Brush weatherText = new SolidBrush(PetTheme.Secondary))
             using (StringFormat format = LeftFormat()) g.DrawString(WeatherCaption(), weatherFont, weatherText, new RectangleF(23, 36, 159, 16), format);
             RectangleF activityBadge = new RectangleF(189, 36, 60, 16);
-            Color activityColor = activityBusy == true ? Color.FromArgb(143, 227, 216) : activityBusy == false ? Color.FromArgb(184, 198, 217) : Color.FromArgb(224, 193, 133);
+            Color activityColor = activityBusy == true ? PetTheme.Healthy : activityBusy == false ? PetTheme.Secondary : PetTheme.Warning;
             using (Font activityFont = UiFont(6.8F, FontStyle.Regular))
             using (Brush activityText = new SolidBrush(activityColor))
             using (StringFormat format = CenterFormat()) g.DrawString(ActivityLabel, activityFont, activityText, activityBadge, format);
-            using (Pen divider = new Pen(Color.FromArgb(70, 124, 157, 188), 1F)) g.DrawLine(divider, 23, 55, 249, 55);
+            using (Pen divider = new Pen(PetTheme.Divider, 1F)) g.DrawLine(divider, 23, 55, 249, 55);
             if (displayMode == 1) DrawQuota(g);
             else DrawHardware(g);
         }
@@ -1136,20 +1122,20 @@ namespace XiaoJingDesktopPet
                 float y = 62 + i * 21;
                 string label = CompactQuotaLabel(window, i);
                 using (Font font = UiFont(8.2F, FontStyle.Regular))
-                using (Brush text = new SolidBrush(Color.FromArgb(223, 234, 245)))
+                using (Brush text = new SolidBrush(PetTheme.Text))
                 using (StringFormat format = LeftFormat()) g.DrawString(label, font, text, new RectangleF(23, y, 83, 16), format);
                 bool known = window.RemainingPercent.HasValue && !Double.IsNaN(window.RemainingPercent.Value) && !Double.IsInfinity(window.RemainingPercent.Value);
                 float fraction = known ? (float)(Math.Max(0, Math.Min(100, window.RemainingPercent.Value)) / 100) : 0;
-                Color barColor = fraction <= 0.15F ? Color.FromArgb(246, 143, 151) : Color.FromArgb(106, 209, 220);
+                Color barColor = fraction <= 0.15F ? PetTheme.Danger : PetTheme.Accent;
                 using (GraphicsPath track = RoundRectangle(new RectangleF(109, y + 6, 63, 5), 2.5F))
-                using (Brush fill = new SolidBrush(Color.FromArgb(88, 114, 137, 162))) g.FillPath(fill, track);
+                using (Brush fill = new SolidBrush(PetTheme.Track)) g.FillPath(fill, track);
                 if (fraction > 0)
                 {
                     using (GraphicsPath progress = RoundRectangle(new RectangleF(109, y + 6, Math.Max(2, 63 * fraction), 5), 2.5F))
                     using (Brush fill = new SolidBrush(barColor)) g.FillPath(fill, progress);
                 }
                 string value = known ? "剩 " + Math.Max(0, Math.Min(100, window.RemainingPercent.Value)).ToString("0.#", CultureInfo.InvariantCulture) + "%" : "未知";
-                DrawFittedValue(g, value, new RectangleF(175, y - 1, 74, 19), known ? barColor : Color.FromArgb(166, 183, 201));
+                DrawFittedValue(g, value, new RectangleF(175, y - 1, 74, 19), known ? barColor : PetTheme.Secondary);
             }
             string footer = quota.IsStale
                 ? (quota.UpdatedAt == default(DateTime) ? "缓存额度 · 等待刷新" : "缓存 " + ShanghaiTime(quota.UpdatedAt).ToString("MM-dd HH:mm", CultureInfo.InvariantCulture) + " · 等待刷新")
@@ -1175,7 +1161,7 @@ namespace XiaoJingDesktopPet
             string gpu = hardware.GpuTemperature.HasValue ? hardware.GpuTemperature.Value.ToString("0", CultureInfo.InvariantCulture) + "°C" : "不可用";
             using (Font labelFont = UiFont(8.1F, FontStyle.Regular))
             using (Font valueFont = UiFont(10.2F, FontStyle.Bold))
-            using (Brush label = new SolidBrush(Color.FromArgb(161, 187, 208)))
+            using (Brush label = new SolidBrush(PetTheme.Secondary))
             {
                 g.DrawString("CPU", labelFont, label, 23, 63);
                 g.DrawString("GPU", labelFont, label, 139, 63);
@@ -1186,21 +1172,21 @@ namespace XiaoJingDesktopPet
             if (hardware.MemoryUsedGiB.HasValue && hardware.MemoryTotalGiB.HasValue)
                 memory += "  " + hardware.MemoryUsedGiB.Value.ToString("0.#", CultureInfo.InvariantCulture) + "/" + hardware.MemoryTotalGiB.Value.ToString("0.#", CultureInfo.InvariantCulture) + " GB";
             using (Font font = UiFont(8F, FontStyle.Regular))
-            using (Brush text = new SolidBrush(Color.FromArgb(216, 231, 244))) g.DrawString(memory, font, text, 23, 82);
+            using (Brush text = new SolidBrush(PetTheme.Text)) g.DrawString(memory, font, text, 23, 82);
             DrawSecondaryMessage(g, !hardware.CpuTemperature.HasValue ? "CPU 未连接 · 右键查看数据来源" : CompactCpuSource(hardware.CpuSensorSource) + " · 更新 " + ShanghaiTime(hardware.UpdatedAt).ToString("HH:mm:ss", CultureInfo.InvariantCulture), 102);
         }
 
         private void DrawMainMessage(Graphics g, string message, float y)
         {
             using (Font font = UiFont(9F, FontStyle.Regular))
-            using (Brush text = new SolidBrush(Color.FromArgb(223, 234, 245)))
+            using (Brush text = new SolidBrush(PetTheme.Text))
             using (StringFormat format = LeftFormat()) g.DrawString(message, font, text, new RectangleF(23, y, 225, 20), format);
         }
 
         private void DrawSecondaryMessage(Graphics g, string message, float y)
         {
             using (Font font = UiFont(6.8F, FontStyle.Regular))
-            using (Brush text = new SolidBrush(Color.FromArgb(142, 165, 185)))
+            using (Brush text = new SolidBrush(PetTheme.Secondary))
             using (StringFormat format = LeftFormat()) g.DrawString(message, font, text, new RectangleF(23, y - 2, 225, 13), format);
         }
 
@@ -1385,48 +1371,6 @@ namespace XiaoJingDesktopPet
                 graphics.DrawImage(gifts, LeftGiftBounds);
                 graphics.DrawImage(gifts, RightGiftBounds);
             }
-        }
-
-        private void DrawFeeding(Graphics g, long elapsed)
-        {
-            if (elapsed < 1100)
-            {
-                float progress = Math.Min(1, elapsed / 900F);
-                float x = 234 - progress * 102;
-                float y = 238 - (float)Math.Sin(progress * Math.PI) * 68 - progress * 27;
-                Image food;
-                if (TryCurrentFoodImage(out food))
-                {
-                    float foodScale = 1 - Math.Max(0, progress - 0.75F) * 1.8F;
-                    DrawFoodImage(g, food, x, y, foodScale);
-                }
-                else
-                {
-                using (Brush body = new SolidBrush(Color.FromArgb(245, 164, 91)))
-                using (Brush highlight = new SolidBrush(Color.FromArgb(255, 215, 155)))
-                using (Pen outline = new Pen(Color.FromArgb(124, 76, 63), 1F))
-                {
-                    g.FillPolygon(body, new PointF[] { new PointF(x + 16, y), new PointF(x + 27, y - 7), new PointF(x + 27, y + 7) });
-                    g.FillEllipse(body, x, y - 8, 21, 16);
-                    g.DrawEllipse(outline, x, y - 8, 21, 16);
-                    g.FillEllipse(highlight, x + 4, y + 1, 11, 4);
-                    g.FillEllipse(Brushes.DarkSlateGray, x + 4, y - 3, 2.5F, 2.5F);
-                }
-                }
-            }
-
-            if (elapsed > 3300)
-            {
-                float rise = (elapsed - 3300) / 35F;
-                int alpha = Clamp(255 - (int)((elapsed - 3600) / 3), 0, 255);
-                using (Brush heart = new SolidBrush(AlphaColor(alpha, 255, 149, 166)))
-                using (Font font = UiFont(16F, FontStyle.Bold)) g.DrawString("♥", font, heart, 182, 171 - rise);
-            }
-        }
-
-        private static void DrawFoodImage(Graphics graphics, Image food, float x, float y, float scale)
-        {
-            graphics.DrawImage(food, new RectangleF(x - 15 * scale, y - 18 * scale, 40 * scale, 36 * scale));
         }
 
         private void DrawMissingPet(Graphics g, float bob)
@@ -1736,10 +1680,10 @@ namespace XiaoJingDesktopPet
 
         private static Color TemperatureColor(double? temperature)
         {
-            if (!temperature.HasValue) return Color.FromArgb(166, 183, 201);
-            if (temperature.Value >= 85) return Color.FromArgb(255, 141, 145);
-            if (temperature.Value >= 70) return Color.FromArgb(248, 204, 130);
-            return Color.FromArgb(127, 217, 228);
+            if (!temperature.HasValue) return PetTheme.Secondary;
+            if (temperature.Value >= 85) return PetTheme.Danger;
+            if (temperature.Value >= 70) return PetTheme.Warning;
+            return PetTheme.Healthy;
         }
 
         private static string CompactQuotaLabel(QuotaWindow window, int index)

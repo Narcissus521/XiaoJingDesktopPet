@@ -33,12 +33,12 @@ namespace XiaoJingDesktopPet
             GraphicsState state = g.Save(); g.ResetTransform(); g.DrawImageUnscaled(informationCardCache, 0, 0); g.Restore(state);
         }
         private void ReleaseRenderCaches()
-        { if (informationCardCache != null) { informationCardCache.Dispose(); informationCardCache = null; } ReleaseFlightArtwork(); ReleaseHomeWalkArtwork(); ReleaseLeisureMotion(); }
+        { if (informationCardCache != null) { informationCardCache.Dispose(); informationCardCache = null; } ReleaseFlightArtwork(); ReleaseHomeWalkArtwork(); ReleaseLeisureMotion(); ReleaseCharacterPlayer(); ReleaseFeedingFood(); ReleaseWorkScene(); ResetWorkTea(); }
         private void UpdateMotionCadence(long now)
         {
             // Short-lived interactions get a fine animation tick; idle keeps its
             // lighter cadence. Artwork no longer snaps between two slow poses.
-            int interval = returnFlying || lifted || falling || homeWalking || AttentionActive || !String.IsNullOrEmpty(leisure) || SippingAt(now) || LandingAt(now) ? 15 : 33;
+            int interval = returnFlying || lifted || falling || homeWalking || WanderVisual || FeedingAt(now) || IsWorkVisual(now) || ClosingLaptopAt(now) || AttentionActive || !String.IsNullOrEmpty(leisure) || SippingAt(now) || LandingAt(now) ? 15 : 33;
             if (animationTimer.Interval != interval) animationTimer.Interval = interval;
         }
         private void DrawSuspendedAction(Graphics g, Image pet, long now)
@@ -51,16 +51,9 @@ namespace XiaoJingDesktopPet
                 g.DrawImage(pet, new RectangleF(destination.X - flutter / 2, destination.Y, destination.Width + flutter, destination.Height));
                 return;
             }
-            // Legs bend continuously from their knees, instead of abruptly
-            // swapping full-body frames. Hair, face and outfit stay registered.
-            RectangleF left = new RectangleF(99, 169, 28, 39), right = new RectangleF(128, 169, 28, 39);
-            GraphicsState state = g.Save();
-            g.ExcludeClip(Rectangle.Round(new RectangleF(8 + left.X, 122 + left.Y, left.Width, left.Height)));
-            g.ExcludeClip(Rectangle.Round(new RectangleF(8 + right.X, 122 + right.Y, right.Width, right.Height)));
-            g.DrawImage(pet, destination); g.Restore(state);
-            double phase = (now - liftStarted) / 210.0;
-            DrawSwingLeg(g, pet, left, (float)Math.Sin(phase) * 3);
-            DrawSwingLeg(g, pet, right, (float)Math.Sin(phase + Math.PI) * 3);
+            // Authored held poses move both legs, sleeves, wings and long hair
+            // together. The old character's rectangular leg cuts are retired.
+            g.DrawImage(pet, destination);
         }
         private static void DrawSwingLeg(Graphics g, Image pet, RectangleF source, float swing)
         {

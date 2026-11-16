@@ -3,24 +3,35 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Collections.Generic;
+using System.Web.Script.Serialization;
 
 namespace XiaoJingDesktopPet
 {
     public sealed partial class PetForm
     {
         private static readonly string[] FlightPhases = { "launch", "cruise", "approach", "land" };
-        private static readonly int[] FlightCounts = { 32, 32, 40, 40 };
+        private static readonly int[] FlightCounts = { 49, 48, 49, 49 };
         private readonly Bitmap[] flightSheets = new Bitmap[4];
+        private Rectangle[][] flightOpaqueBounds;
+        private Rectangle flightMotionBounds;
+        private sealed class FlightBoundsProfile {
+            public int revision {get;set;}
+            public Dictionary<string,int[][]> left {get;set;}
+            public Dictionary<string,int[][]> right {get;set;}
+        }
         private string flightSheetKey, flightOutfit;
         private long flightLandingStarted = -10000;
         private bool FlightFacingRight { get { return flightTo.X > flightFrom.X; } }
-        private string FlightOutfitKey() { return CurrentLoopKey(); }
+        private string FlightOutfitKey() { return ActionOutfitKey(); }
         private bool FlightLandingAt(long now)
         { return !returnFlying && !lifted && !falling && LandingAt(now) && now >= flightLandingStarted && now - flightLandingStarted < 650; }
         private void ReleaseFlightArtwork()
         {
             for (int i = 0; i < flightSheets.Length; i++) { if (flightSheets[i] != null) { flightSheets[i].Dispose(); flightSheets[i] = null; } }
             flightSheetKey = null;
+            flightOpaqueBounds = null;
+            flightMotionBounds = Rectangle.Empty;
         }
         private bool EnsureFlightArtwork(string outfit, bool right)
         {
@@ -36,6 +47,21 @@ namespace XiaoJingDesktopPet
                         if (source.Width != 2176 || source.Height != 208 * ((FlightCounts[i] + 7) / 8)) throw new InvalidDataException("Invalid flight sprite dimensions.");
                         flightSheets[i] = new Bitmap(source.Width, source.Height, PixelFormat.Format32bppPArgb);
                         using (var g = Graphics.FromImage(flightSheets[i])) { g.CompositingMode = CompositingMode.SourceCopy; g.DrawImageUnscaled(source, 0, 0); }
+                    }
+                }
+                string boundsFile=Path.Combine(root,"quality-bounds.json");
+                if(File.Exists(boundsFile)){
+                    var profile=new JavaScriptSerializer().Deserialize<FlightBoundsProfile>(File.ReadAllText(boundsFile));
+                    if(profile==null||profile.revision!=401)throw new InvalidDataException("Invalid flight bounds profile.");
+                    var selected=right?profile.right:profile.left;flightOpaqueBounds=new Rectangle[4][];
+                    for(int phase=0;phase<4;phase++){
+                        int[][] boxes;if(selected==null||!selected.TryGetValue(FlightPhases[phase],out boxes)||boxes.Length!=FlightCounts[phase])throw new InvalidDataException("Incomplete flight bounds.");
+                        flightOpaqueBounds[phase]=new Rectangle[boxes.Length];
+                        for(int frame=0;frame<boxes.Length;frame++){
+                            int[] b=boxes[frame];if(b.Length!=4||b[0]<0||b[1]<0||b[2]<=0||b[3]<=0||b[0]+b[2]>272||b[1]+b[3]>208)throw new InvalidDataException("Invalid flight opaque area.");
+                            flightOpaqueBounds[phase][frame]=new Rectangle(b[0],b[1],b[2],b[3]);
+                            flightMotionBounds=flightMotionBounds.IsEmpty?flightOpaqueBounds[phase][frame]:Rectangle.Union(flightMotionBounds,flightOpaqueBounds[phase][frame]);
+                        }
                     }
                 }
                 flightSheetKey = identity; return true;
@@ -75,13 +101,24 @@ namespace XiaoJingDesktopPet
         private void DrawReturnFlight(Graphics g, Image fallback, long now)
         {
             GraphicsState state = g.Save(); float angle = FlightPitchAt(now);
-            double radians = Math.Abs(angle) * Math.PI / 180, c = Math.Cos(radians), s = Math.Sin(radians);
-            float fit = (float)Math.Min(1, Math.Min(268 / (272*c + 208*s), 204 / (272*s + 208*c)));
-            g.TranslateTransform(136, 226); g.RotateTransform(angle); g.ScaleTransform(fit, fit); g.TranslateTransform(-136, -226);
             int phase, frame; FlightFrameAt(now, out phase, out frame);
-            if (EnsureFlightArtwork(flightOutfit, FlightFacingRight)) DrawAuthoredFlightFrame(g, phase, frame);
+            bool authored=EnsureFlightArtwork(flightOutfit,FlightFacingRight);
+            float fit=FlightFrameFit(phase,frame,angle);
+            g.TranslateTransform(136, 226); g.RotateTransform(angle); g.ScaleTransform(fit, fit); g.TranslateTransform(-136, -226);
+            if (authored) DrawAuthoredFlightFrame(g, phase, frame);
             else if (fallback != null) g.DrawImage(fallback, new Rectangle(8, 122, 256, 208));
             g.Restore(state);
+        }
+        private float FlightFrameFit(int phase,int frame,float angle)
+        {
+            // Keep one envelope across the motion so wing beats cannot pulse the
+            // whole character's scale. Transparent cell padding stays excluded.
+            Rectangle bounds=flightOpaqueBounds==null?new Rectangle(0,0,272,208):flightMotionBounds;
+            double radians=angle*Math.PI/180,c=Math.Cos(radians),s=Math.Sin(radians),maxX=1,maxY=1;
+            foreach(int x in new[]{bounds.Left,bounds.Right})foreach(int y in new[]{bounds.Top,bounds.Bottom}){
+                double px=x-136,py=y-104;maxX=Math.Max(maxX,Math.Abs(px*c-py*s));maxY=Math.Max(maxY,Math.Abs(px*s+py*c));
+            }
+            return (float)Math.Min(1,Math.Min(134/maxX,102/maxY));
         }
         private void DrawFlightLanding(Graphics g, long now)
         {

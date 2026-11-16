@@ -26,6 +26,14 @@ namespace XiaoJingDesktopPet
         {
             ReleaseScenePlayer(); ReleaseAttention();if(attentionMorph!=null){attentionMorph.Dispose();attentionMorph=null;attentionMorphIdentity=null;}if(leisureMotion!=null){leisureMotion.Dispose();leisureMotion=null;}
         }
+        private LeisureProfile GeneralToolProfile()
+        {
+            try {
+                if (leisureCatalog == null) leisureCatalog = new JavaScriptSerializer().Deserialize<LeisureCatalog>(File.ReadAllText(Path.Combine(actionAssetsRoot, "..", "action-motion", "catalog.json")));
+                LeisureProfile profile;
+                return leisureCatalog != null && leisureCatalog.outfits.TryGetValue(ActionOutfitKey(), out profile) ? profile : null;
+            } catch { return null; }
+        }
         private bool EnsureLeisureMotion(string action)
         {
             if(action=="tea"||action=="bubbles"||action=="fishing")return false;

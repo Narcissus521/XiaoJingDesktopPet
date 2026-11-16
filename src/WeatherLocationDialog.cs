@@ -52,6 +52,7 @@ namespace XiaoJingDesktopPet
             saveButton.Click += SaveClicked; buttons.Controls.Add(cancel); buttons.Controls.Add(saveButton); layout.Controls.Add(buttons, 0, 5);
             Controls.Add(layout); AcceptButton = searchButton; CancelButton = cancel;
             Shown += delegate { queryBox.SelectAll(); queryBox.Focus(); };
+            PetTheme.StyleDialog(this);
         }
 
         private async void SearchClicked(object sender, EventArgs args)

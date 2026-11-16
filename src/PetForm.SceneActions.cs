@@ -39,11 +39,19 @@ namespace XiaoJingDesktopPet {
    g.DrawImage(scenePlayer==null?null:CurrentSceneFrame(now),0,122+bob,272,208);return true;
   }
   private bool DrawWorkingTea(Graphics g,long now){
-   if(!EnsureScenePlayer("tea"))return false;
+   if(!EnsureScenePlayer("tea")||!EnsureWorkScene())return false;
    long elapsed=TeaCycleTiming.WorkDuration-(teaUntil-now);
-   if(elapsed<SceneEntryDuration)using(var idle=SceneIdleTarget()){if(idle!=null){g.DrawImageUnscaled(scenePlayer.Entry(idle,CurrentLoopKey(),elapsed/(double)SceneEntryDuration),0,122);return true;}}
+   if(elapsed<SceneEntryDuration){
+    Bitmap working=workScenePlayer.Frame(WorkCycleTiming.At(workTeaFrozenElapsed),workTeaFrozenElapsed);
+    Bitmap tea=scenePlayer.Frame(new ScenePose(0,0,0,"rest"),0);
+    DrawWorkTransition(g,working,tea,elapsed/(double)SceneEntryDuration,false);return true;
+   }
    long time=Math.Max(0,elapsed-SceneEntryDuration);
-   if(time>=TeaCycleTiming.ActionDuration)using(var idle=SceneIdleTarget()){if(idle!=null){g.DrawImageUnscaled(scenePlayer.Entry(idle,CurrentLoopKey(),1-(time-TeaCycleTiming.ActionDuration)/700.0),0,122);return true;}}
+   if(time>=TeaCycleTiming.ActionDuration){
+    Bitmap tea=scenePlayer.Frame(new ScenePose(0,0,0,"rest"),0);
+    Bitmap working=workScenePlayer.Frame(WorkCycleTiming.At(0),0);
+    DrawWorkTransition(g,tea,working,(time-TeaCycleTiming.ActionDuration)/(double)SceneEntryDuration,true);return true;
+   }
    g.DrawImageUnscaled(scenePlayer.Frame(TeaCycleTiming.At(time),time),0,122);return true;
   }
   private float TeaLaptopOpacity(long now){
@@ -66,12 +74,17 @@ namespace XiaoJingDesktopPet {
   private void StopSceneAction(long now){CommitSceneFish(now,true);fishingCycle=null;}
   private void TickSceneAction(long now){
    if(leisure!="fishing"||fishingCycle==null)return;
-   CommitSceneFish(now,false);fishingCycle.Tick(now,5000+random.Next(4500));biteAt=fishingCycle.BiteAt;
+   CommitSceneFish(now,false);
+   // Keep the original bite window until a pending single click is resolved.
+   if (!WaitingForSingleReel) fishingCycle.Tick(now,5000+random.Next(4500));
+   biteAt=fishingCycle.BiteAt;
   }
-  private bool HookSceneFish(long now){
+  private bool HookSceneFish(long clickedAt,long now){
    if(fishingCycle==null)return false;
    int roll=random.Next(100),fish=roll<40?0:roll<65?1:roll<82?2:roll<92?3:roll<98?4:5;
-   return fishingCycle.TryHook(now,fish);
+   if (!fishingCycle.TryHook(clickedAt,fish)) return false;
+   fishingCycle.HookedAt = now;
+   return true;
   }
   private PointF SceneFloatPoint(){
    if(EnsureScenePlayer("fishing")&&scenePlayer.Profile.floatPoint!=null)return new PointF((float)scenePlayer.Profile.floatPoint[0],122+(float)scenePlayer.Profile.floatPoint[1]);
@@ -94,12 +107,12 @@ namespace XiaoJingDesktopPet {
   private void ReleaseSceneAttention(){sceneAttention=false;sceneAttentionMap=null;sceneAttentionSourcePixels=sceneAttentionTargetPixels=null;if(sceneAttentionOutput!=null){sceneAttentionOutput.Dispose();sceneAttentionOutput=null;}}
   private void ReleaseScenePlayer(){if(scenePlayer!=null){scenePlayer.Dispose();scenePlayer=null;}ReleaseSceneAttention();}
   private void PauseSceneActions(long now){scenePausedAt=now;scenePausedDuringWorkTea=SippingAt(now);}
-  private void ResumeSceneActions(long now){if(scenePausedAt<0)return;long delta=Math.Max(0,now-scenePausedAt);scenePausedAt=-1;if(SceneAction)leisureStarted+=delta;if(fishingCycle!=null){fishingCycle.ShiftForPause(delta);biteAt=fishingCycle.BiteAt;}if(scenePausedDuringWorkTea)teaUntil+=delta;scenePausedDuringWorkTea=false;if(AttentionActive)attentionStarted+=delta;}
+  private void ResumeSceneActions(long now){if(scenePausedAt<0)return;long delta=Math.Max(0,now-scenePausedAt);scenePausedAt=-1;if(SceneAction)leisureStarted+=delta;if(fishingCycle!=null){fishingCycle.ShiftForPause(delta);biteAt=fishingCycle.BiteAt;}if(scenePausedDuringWorkTea){teaUntil+=delta;if(workResumeOwner==workStarted)workResumeAt+=delta;}scenePausedDuringWorkTea=false;if(AttentionActive)attentionStarted+=delta;}
   private string SceneActionHint(long now){
    if(!SceneAction)return null;ScenePose pose=CurrentScenePose(now);
    if(leisure=="bubbles")return now-leisureStarted<SceneEntryDuration?"拿好泡泡棒，准备啦～":pose.Stage=="dip"?"把泡泡棒伸进瓶子，蘸一点泡泡水～":pose.Stage=="raise"?"举到嘴边，准备吹泡泡～":pose.Stage=="inhale"?"轻轻换口气～":pose.Stage=="lower"?"再蘸一点泡泡水～":"呼～吹一串小泡泡";
    if(leisure=="tea")return pose.Stage=="rest"?"托着茶碟歇一会儿～":pose.Stage=="pick"?"托好茶碟，握住杯把～":pose.Stage=="raise"?"双手捧好，送到嘴边～":pose.Stage=="sip"?"小口喝茶，暖暖的～":"把杯子放回手中的茶碟～";
-   switch(pose.Stage){case "backswing":return "收好鱼线，向后扬竿～";case "cast":case "splash":return "甩出鱼钩，轻轻落水～";case "bite":return "浮漂动啦！点击浮漂收竿～";case "lift":case "reel":return "拉住鱼线，把鱼儿提上来～";case "unhook":return "小心取下鱼钩～";case "support":case "deposit":return "捧好鱼儿，放进鱼篓～";case "release":case "recast":return "收好啦，再钓一条～";default:return "坐在小船上，等鱼儿咬钩～";}
+   switch(pose.Stage){case "backswing":return "收好鱼线，向后扬竿～";case "cast":case "splash":return "甩出鱼钩，轻轻落水～";case "bite":return "浮漂动啦！单击小鲸收竿～";case "lift":case "reel":return "拉住鱼线，把鱼儿提上来～";case "unhook":return "小心取下鱼钩～";case "support":case "deposit":return "捧好鱼儿，放进鱼篓～";case "release":case "recast":return "收好啦，再钓一条～";default:return "坐在小船上，等鱼儿咬钩～";}
   }
  }
 }

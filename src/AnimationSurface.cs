@@ -11,15 +11,29 @@ namespace XiaoJingDesktopPet
         internal readonly int[] Indices;
         internal readonly float[] Weights, X, Y;
         internal MotionInfluence(int width,int height,float cx,float cy,float rx,float ry,float px,float py,float minY,float minX=0,float maxX=10000)
+            : this(width, height, Rectangle.FromLTRB((int)(cx-rx), (int)(cy-ry), (int)(cx+rx+1), (int)(cy+ry+1)),
+                new PointF(px, py), (x, y) => Smooth(1-(x-cx)*(x-cx)/(rx*rx)-(y-cy)*(y-cy)/(ry*ry))*
+                    Smooth((y-minY)/14F)*Smooth((x-minX)/6F)*Smooth((maxX-x)/6F))
+        {
+        }
+
+        internal MotionInfluence(int width, int height, Rectangle region, PointF pivot, Func<int, int, float> weightAt)
         {
             var ids=new List<int>();var weights=new List<float>();var xs=new List<float>();var ys=new List<float>();
-            for(int y=Math.Max(0,(int)(cy-ry));y<Math.Min(height,(int)(cy+ry+1));y++)for(int x=Math.Max(0,(int)(cx-rx));x<Math.Min(width,(int)(cx+rx+1));x++){
-                float w=Smooth(1-(x-cx)*(x-cx)/(rx*rx)-(y-cy)*(y-cy)/(ry*ry))*Smooth((y-minY)/14F)*Smooth((x-minX)/6F)*Smooth((maxX-x)/6F);
-                if(w<=0)continue;ids.Add(y*width+x);weights.Add(w);xs.Add(x-px);ys.Add(y-py);
+            region.Intersect(new Rectangle(0, 0, width, height));
+            for (int y = region.Top; y < region.Bottom; y++)
+            for (int x = region.Left; x < region.Right; x++)
+            {
+                float weight = weightAt(x, y);
+                if (weight <= 0) continue;
+                ids.Add(y * width + x);
+                weights.Add(weight);
+                xs.Add(x - pivot.X);
+                ys.Add(y - pivot.Y);
             }
             Indices=ids.ToArray();Weights=weights.ToArray();X=xs.ToArray();Y=ys.ToArray();
         }
-        private static float Smooth(float n){n=Math.Max(0,Math.Min(1,n));return n*n*(3-2*n);}
+        internal static float Smooth(float n){n=Math.Max(0,Math.Min(1,n));return n*n*(3-2*n);}
     }
     internal sealed class MotionSurface : IDisposable
     {
