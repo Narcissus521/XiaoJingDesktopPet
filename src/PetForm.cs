@@ -1021,7 +1021,7 @@ namespace XiaoJingDesktopPet
                 g.RotateTransform(angle);
                 g.TranslateTransform(-136, -226);
 
-                if (pet != null && FeedingAt(now)) g.DrawImage(pet,new RectangleF(8,122,256,208));
+                if (pet != null && FeedingAt(now)) DrawFeedingActor(g,pet,now-feedStarted);
                 else if (pet != null && returnFlying) DrawReturnFlight(g, pet, now);
                 else if (pet != null && FlightLandingAt(now)) DrawFlightLanding(g, now);
                 else if (pet != null && (lifted || falling)) DrawSuspendedAction(g, pet, now);

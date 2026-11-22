@@ -1,6 +1,8 @@
-下载与编译：完整程序及素材见 Release。仓库 src 为 4.0.4 源码；编译前需从同版本便携包复制 assets 和 sensors 到 Rebuild.ps1 同级目录。
+# 小鲸桌面宠物 4.0.6 · 银白龙娘
 
-# 小鲸桌面宠物 4.0.4 · 银白龙娘
+4.0.6：投喂从接食的手侧抛入；每套服装独立校准手指、手套与食物的前后关系，食物随抬手送入口中，按咬下的部分逐步吃完。
+
+4.0.5: The cup remains visible on the saucer between sips and follows the hand throughout the drinking motion. Feeding uses an illustrated fish, with hand occlusion and bite shapes synchronized to chewing.
 
 4.0.4：修正投喂时鱼与嘴部、手指及冬季手套的遮挡；投喂优先于喝茶等动作，避免食物落在错误的身体姿势上。修正待机和动作中点整张画面突然切换导致的闪烁；投喂后从自然待机起点继续。
 

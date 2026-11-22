@@ -43,12 +43,12 @@ namespace XiaoJingDesktopPet {
    long elapsed=TeaCycleTiming.WorkDuration-(teaUntil-now);
    if(elapsed<SceneEntryDuration){
     Bitmap working=workScenePlayer.Frame(WorkCycleTiming.At(workTeaFrozenElapsed),workTeaFrozenElapsed);
-    Bitmap tea=scenePlayer.Frame(new ScenePose(0,0,0,"rest"),0);
+    Bitmap tea=scenePlayer.Frame(TeaCycleTiming.Rest,0);
     DrawWorkTransition(g,working,tea,elapsed/(double)SceneEntryDuration,false);return true;
    }
    long time=Math.Max(0,elapsed-SceneEntryDuration);
    if(time>=TeaCycleTiming.ActionDuration){
-    Bitmap tea=scenePlayer.Frame(new ScenePose(0,0,0,"rest"),0);
+    Bitmap tea=scenePlayer.Frame(TeaCycleTiming.Rest,0);
     Bitmap working=workScenePlayer.Frame(WorkCycleTiming.At(0),0);
     DrawWorkTransition(g,tea,working,(time-TeaCycleTiming.ActionDuration)/(double)SceneEntryDuration,true);return true;
    }

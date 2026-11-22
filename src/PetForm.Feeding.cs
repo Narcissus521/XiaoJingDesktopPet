@@ -1,18 +1,26 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 namespace XiaoJingDesktopPet {
  public sealed partial class PetForm {
   private sealed class FoodContact {
    internal Rectangle Bounds;internal float BellyX;
+   internal float BiteTop, BiteBottom;
+   internal float[] BiteCentres;
   }
   private readonly Dictionary<Image,FoodContact> foodContacts=new Dictionary<Image,FoodContact>();
   private readonly Dictionary<Image,Bitmap> feedingFoodRasters=new Dictionary<Image,Bitmap>();
+  private const int FoodLayerSize=56;
+  private readonly int[] foodLayerPixels=new int[FoodLayerSize*FoodLayerSize];
+  private Bitmap foodLayer;
   private Bitmap feedingFish;
+  private Bitmap feedingComposite;
   private Image FeedingFoodImage(){
-   Image image;if(TryCurrentFoodImage(out image))return image;
+   Image image;
+   if(TryCurrentFoodImage(out image)||images.TryGetValue("life/fish-2",out image))return image;
    if(feedingFish==null){
     feedingFish=new Bitmap(160,128,PixelFormat.Format32bppPArgb);
     using(var g=Graphics.FromImage(feedingFish)){
@@ -36,9 +44,9 @@ namespace XiaoJingDesktopPet {
    var palm=new PointF(profile.feedHand[0],profile.feedHand[1]);var mouth=new PointF(profile.feedMouth[0],profile.feedMouth[1]+10);
    return EnsureCharacterPlayer()?characterPlayer.FeedingPoint(palm,mouth,elapsed):palm;
   }
-  private Image PreparedFeedingFoodImage(){
-   Image source=FeedingFoodImage();Bitmap raster;if(feedingFoodRasters.TryGetValue(source,out raster))return raster;
-   FoodContact original=FoodSupport(source);float fit=Math.Min(30F/original.Bounds.Width,24F/original.Bounds.Height);
+  private Image PreparedFeedingFoodImage(Image source){
+   Bitmap raster;if(feedingFoodRasters.TryGetValue(source,out raster))return raster;
+   FoodContact original=FoodSupport(source);float fit=Math.Min(27F/original.Bounds.Width,21F/original.Bounds.Height);
    raster=new Bitmap(Math.Max(1,(int)Math.Round(original.Bounds.Width*fit)),Math.Max(1,(int)Math.Round(original.Bounds.Height*fit)),PixelFormat.Format32bppPArgb);
    using(var g=Graphics.FromImage(raster)){
     g.InterpolationMode=InterpolationMode.HighQualityBicubic;g.PixelOffsetMode=PixelOffsetMode.HighQuality;
@@ -48,32 +56,127 @@ namespace XiaoJingDesktopPet {
    // otherwise move several pixels when the large source is fitted to 30px.
    feedingFoodRasters.Add(source,raster);return raster;
   }
-  private void FoodPlacement(long elapsed,out Image food,out FoodContact contact,out PointF support,out float scale){
-   food=PreparedFeedingFoodImage();contact=FoodSupport(food);PointF at=FeedingSupportPoint(elapsed);
-   float p=(float)FeedingCycle.Smooth(Math.Min(1,elapsed/650.0));
-   support=elapsed<650?new PointF(234+(at.X+8-234)*p,238+(at.Y+122-238)*p-(float)Math.Sin(p*Math.PI)*38):new PointF(at.X+8,at.Y+122);
-   scale=FeedingCycle.FoodScale(elapsed)/.85F;
-   // The receiving palm supports the belly; at the mouth the fingers hold the
-   // sides. Keep the food's upper edge at the lips, below the cheeks.
-   support.Y+=Math.Max(0,contact.Bounds.Height-12)*(float)FeedingCycle.CarryProgress(elapsed);
+  private PointF FeedingLips(){
+   LeisureProfile profile=GeneralToolProfile();
+   if(profile==null||profile.feedMouth==null)return new PointF(126,89);
+   return new PointF(profile.feedMouth[0],profile.feedMouth[1]);
   }
+
   private void DrawFeedingFoodOnly(Graphics g,long elapsed){
-   if(elapsed<0||elapsed>=FeedingCycle.FoodEnd)return;
-   Image food;FoodContact contact;PointF at;float scale;FoodPlacement(elapsed,out food,out contact,out at,out scale);
-   var rectangle=new RectangleF(at.X-contact.BellyX*scale,at.Y-(contact.Bounds.Height-1)*scale,contact.Bounds.Width*scale,contact.Bounds.Height*scale);
-   g.DrawImage(food,rectangle,contact.Bounds,GraphicsUnit.Pixel);
+   DrawFoodLayer(g,elapsed,null);
   }
-  private void DrawFeeding(Graphics g,long elapsed){
-   DrawFeedingFoodOnly(g,elapsed);
-   if(elapsed>=0&&elapsed<FeedingCycle.FoodEnd&&EnsureCharacterPlayer()){
-    Image food;FoodContact contact;PointF at;float scale;FoodPlacement(elapsed,out food,out contact,out at,out scale);
-    characterPlayer.DrawFeedingFingers(g,FeedingSupportPoint(elapsed),contact.Bounds.Width*scale,contact.Bounds.Height*scale,elapsed);
+
+  private void DrawFoodLayer(Graphics g,long elapsed,CharacterActionPlayer actor){
+   if(elapsed<0||elapsed>=FeedingCycle.FoodEnd)return;
+   Image source=FeedingFoodImage(),fishArt;
+   Image food=PreparedFeedingFoodImage(source);FoodContact contact=FoodSupport(food);
+   PointF hand=FeedingSupportPoint(elapsed), lips=FeedingLips();
+   bool fish=Object.ReferenceEquals(source,feedingFish)||
+            (images.TryGetValue("life/fish-2",out fishArt)&&Object.ReferenceEquals(source,fishArt));
+   float finalTilt=fish?-26F:-9F;
+   if(contact.BiteCentres==null)MeasureBiteEdge(food,contact,finalTilt);
+   double flight=FeedingCycle.Smooth(elapsed/650.0);
+   double carry=FeedingCycle.CarryProgress(elapsed);
+   double approach=FeedingCycle.Smooth((carry-.22)/.78);
+   double first=FeedingCycle.Smooth((elapsed-FeedingCycle.FirstBite)/180.0);
+   double last=FeedingCycle.Smooth((elapsed-FeedingCycle.SecondBite)/205.0);
+   double eaten=.36*first+.64*last;
+   float width=contact.Bounds.Width,height=contact.Bounds.Height;
+   float tilt=(float)((1-flight)*-10+approach*finalTilt);
+   // The underside lands on the open palm. A toss from the receiving side
+   // leaves the face clear even for the wide winter hoods.
+   float cx=hand.X+width/2-contact.BellyX,cy=hand.Y-height/2+1;
+   if(elapsed<650){
+    cx=(float)(18+(cx-18)*flight);
+    cy=(float)(cy+17*(1-flight)-5*Math.Sin(Math.PI*flight));
+   }else{
+    double row=eaten*(contact.BiteCentres.Length-1);
+    int i=(int)row,j=Math.Min(i+1,contact.BiteCentres.Length-1);
+    double biteX=contact.BiteCentres[i]+(contact.BiteCentres[j]-contact.BiteCentres[i])*(row-i);
+    double biteY=contact.BiteTop+(contact.BiteBottom-contact.BiteTop+3)*eaten;
+    cx+=(float)((lips.X-biteX-cx)*approach);
+    cy+=(float)((lips.Y+1-biteY-cy)*approach);
    }
+   float x=cx-width/2,y=cy-height/2;
+   int left=(int)Math.Floor(x)-10,top=(int)Math.Floor(y)-10;
+   if(foodLayer==null)foodLayer=new Bitmap(FoodLayerSize,FoodLayerSize,PixelFormat.Format32bppPArgb);
+   using(var paint=Graphics.FromImage(foodLayer)){
+    paint.Clear(Color.Transparent);paint.InterpolationMode=InterpolationMode.HighQualityBicubic;paint.PixelOffsetMode=PixelOffsetMode.HighQuality;
+    paint.TranslateTransform(x-left+width/2,y-top+height/2);paint.RotateTransform(tilt);
+    paint.DrawImage(food,new RectangleF(-width/2,-height/2,width,height),contact.Bounds,GraphicsUnit.Pixel);
+   }
+   var rect=new Rectangle(0,0,FoodLayerSize,FoodLayerSize);
+   var data=foodLayer.LockBits(rect,ImageLockMode.ReadWrite,PixelFormat.Format32bppPArgb);
+   try{
+    Marshal.Copy(data.Scan0,foodLayerPixels,0,foodLayerPixels.Length);
+    for(int row=0;row<FoodLayerSize;row++)for(int column=0;column<FoodLayerSize;column++){
+     int i=row*FoodLayerSize+column,v=foodLayerPixels[i];if((v>>24)==0)continue;
+     int px=left+column,py=top+row;
+     double alpha=1;
+     if(eaten>0){
+      // The leading edge enters at the lips. Only the part crossing that
+      // edge disappears, and the remaining piece keeps its original scale.
+      double lipLine=lips.Y+.3+Math.Min(2,Math.Abs(px-lips.X)*.10);
+      alpha=FeedingCycle.Smooth((py-lipLine+.55)/1.2);
+     }
+     if(actor!=null && elapsed>=470)alpha*=1-actor.FeedingHandCover(px,py,hand,lips,elapsed);
+     if(alpha<.999)foodLayerPixels[i]=ScaleFoodAlpha(v,alpha);
+    }
+    Marshal.Copy(foodLayerPixels,0,data.Scan0,foodLayerPixels.Length);
+   }finally{foodLayer.UnlockBits(data);}
+   g.DrawImageUnscaled(foodLayer,left+8,top+122);
+  }
+
+  private static void MeasureBiteEdge(Image food,FoodContact contact,float tilt){
+   // Trace the cross sections of the rotated illustration once. A round bun
+   // and a fish tail then pass through the same mouth at different offsets.
+   const int bins=48;
+   var sum=new double[bins];var weights=new double[bins];
+   double angle=tilt*Math.PI/180,cos=Math.Cos(angle),sin=Math.Sin(angle);
+   int[] ink=ScenePixels.Read(food);var box=contact.Bounds;
+   float top=float.MaxValue,bottom=float.MinValue;
+   for(int y=0;y<box.Height;y++)for(int x=0;x<box.Width;x++){
+    int alpha=(int)((uint)ink[(box.Y+y)*food.Width+box.X+x]>>24);
+    if(alpha<96)continue;
+    double dx=x+.5-box.Width*.5,dy=y+.5-box.Height*.5;
+    float ry=(float)(sin*dx+cos*dy);top=Math.Min(top,ry);bottom=Math.Max(bottom,ry);
+    int bin=Math.Max(0,Math.Min(bins-1,(int)Math.Round(ry)+bins/2));
+    sum[bin]+=(cos*dx-sin*dy)*alpha;weights[bin]+=alpha;
+   }
+   int lo=Math.Max(0,(int)Math.Round(top)+bins/2),hi=Math.Min(bins-1,(int)Math.Round(bottom)+bins/2);
+   contact.BiteTop=top-.5F;contact.BiteBottom=bottom+.5F;contact.BiteCentres=new float[hi-lo+1];
+   for(int i=lo;i<=hi;i++){
+    double w=0,value=0;
+    for(int j=Math.Max(lo,i-2);j<=Math.Min(hi,i+2);j++){
+     int kernel=3-Math.Abs(i-j);w+=kernel*weights[j];value+=kernel*sum[j];
+    }
+    contact.BiteCentres[i-lo]=w>0?(float)(value/w):0;
+   }
+  }
+
+  private void DrawFeedingActor(Graphics screen,Image actor,long elapsed){
+   if(feedingComposite==null)feedingComposite=new Bitmap(256,208,PixelFormat.Format32bppPArgb);
+   using(var local=Graphics.FromImage(feedingComposite)){
+    local.Clear(Color.Transparent);
+    local.DrawImage(actor,new Rectangle(0,0,256,208),0,0,actor.Width,actor.Height,GraphicsUnit.Pixel);
+    local.TranslateTransform(-8,-122);
+    DrawFoodLayer(local,elapsed,characterPlayer);
+   }
+   screen.DrawImage(feedingComposite,new RectangleF(8,122,256,208),new RectangleF(0,0,256,208),GraphicsUnit.Pixel);
+  }
+
+  private static int ScaleFoodAlpha(int pixel,double opacity){
+   int weight=(int)Math.Round(256*opacity),result=0;
+   for(int shift=0;shift<=24;shift+=8)result|=((((pixel>>shift)&255)*weight+128)>>8)<<shift;
+   return result;
+  }
+
+  private void DrawFeeding(Graphics g,long elapsed){
    if(elapsed>4300){
     float rise=(elapsed-4300)/35F;int alpha=Clamp((int)(255*(5400-elapsed)/700.0),0,255);
     using(var brush=new SolidBrush(AlphaColor(alpha,255,149,166)))using(var font=UiFont(16F,FontStyle.Bold))g.DrawString("♥",font,brush,182,171-rise);
    }
   }
-  private void ReleaseFeedingFood(){foreach(var image in feedingFoodRasters.Values)image.Dispose();feedingFoodRasters.Clear();if(feedingFish!=null){feedingFish.Dispose();feedingFish=null;}foodContacts.Clear();}
+  private void ReleaseFeedingFood(){if(feedingComposite!=null){feedingComposite.Dispose();feedingComposite=null;}foreach(var image in feedingFoodRasters.Values)image.Dispose();feedingFoodRasters.Clear();if(feedingFish!=null){feedingFish.Dispose();feedingFish=null;}if(foodLayer!=null){foodLayer.Dispose();foodLayer=null;}foodContacts.Clear();}
  }
 }

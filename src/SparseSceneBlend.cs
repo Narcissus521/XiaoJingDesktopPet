@@ -33,6 +33,32 @@ namespace XiaoJingDesktopPet {
    }
   }
   private static double TextureMix(double progress){double p=Math.Max(0,Math.Min(1,(progress-.30)/.40));return p*p*(3-2*p);}
+  internal void BlendTeaCup(int[] source,int[] target,double progress,PointF cupFrom,PointF cupTo,int[] output){
+   Blend(source,target,progress,output);
+   if(progress<=0||progress>=1)return;
+   float p=(float)progress;
+   float cx=cupFrom.X+(cupTo.X-cupFrom.X)*p,cy=cupFrom.Y+(cupTo.Y-cupFrom.Y)*p;
+   int weight=(int)Math.Round(TextureMix(progress)*256);
+   int minX=Math.Max(0,(int)cx-22),maxX=Math.Min(Width-1,(int)cx+20);
+   int minY=Math.Max(0,(int)cy-14),maxY=Math.Min(Height-1,(int)cy+14);
+   for(int y=minY;y<=maxY;y++)for(int x=minX;x<=maxX;x++){
+    float dx=x-cx,dy=y-cy;
+    double extent=Math.Sqrt((dx+1)*(dx+1)/420+dy*dy/182);
+    int influence=(int)(FeedingCycle.Smooth((1-extent)/.43)*256);
+    if(influence==0)continue;
+    // Both samples use the same moving cup coordinates. The normal flow
+    // still handles the face, saucer and sleeves outside the contact area.
+    int a=Sample(source,cupFrom.X+dx,cupFrom.Y+dy);
+    int b=Sample(target,cupTo.X+dx,cupTo.Y+dy);
+    int index=y*Width+x;
+    output[index]=Mix(output[index],Mix(a,b,weight),influence);
+   }
+  }
+  private static int Mix(int a,int b,int weight){
+   int pixel=0;
+   for(int shift=0;shift<=24;shift+=8)pixel|=((((a>>shift)&255)*(256-weight)+((b>>shift)&255)*weight+128)>>8)<<shift;
+   return pixel;
+  }
   private void LoadNodes(double progress){
    if(loadedProgress==progress)return;loadedProgress=progress;
    double f=progress*(frameCount-1);int first=Math.Min(frameCount-2,(int)f);float t=(float)(f-first);int start=first*4*gridSize,next=start+4*gridSize;

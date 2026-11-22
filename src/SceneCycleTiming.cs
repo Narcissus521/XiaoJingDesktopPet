@@ -13,8 +13,21 @@ namespace XiaoJingDesktopPet {
  }
  internal static class TeaCycleTiming {
   internal const int ActionDuration=8000,RestDuration=12000,Period=ActionDuration+RestDuration,WorkDuration=9400;
-  private static readonly int[] Durations={500,600,650,700,600,900,900,700,650,650,650,500};
-  internal static ScenePose At(long elapsed){long t=Math.Max(0,elapsed)%Period;if(t>=ActionDuration){long rest=t-ActionDuration,phase=rest%4000;double blink=phase<3820?0:Math.Sin(Math.PI*(phase-3820)/180.0);return new ScenePose(0,10,blink,"rest");}for(int i=0;i<12;i++){if(t<Durations[i])return new ScenePose(i,(i+1)%12,t/(double)Durations[i],i<3?"pick":i<5?"raise":i<7?"sip":"lower");t-=Durations[i];}return new ScenePose(0,1,0,"pick");}
+  internal const int RestPose=10;
+  // Use only keys carrying both the cup and saucer. The two empty-saucer
+  // drawings made the cup vanish when the hand set it down or blinked.
+  private static readonly int[] Keys={10,9,8,7,6,5,4,5,6,7,8,9,10};
+  private static readonly int[] Durations={400,450,650,650,650,600,800,850,850,850,700,550};
+  internal static ScenePose Rest {get{return new ScenePose(RestPose,RestPose,0,"rest");}}
+  internal static ScenePose At(long elapsed){
+   long t=Math.Max(0,elapsed)%Period;
+   if(t>=ActionDuration)return Rest;
+   for(int i=0;i<Durations.Length;i++){
+    if(t<Durations[i])return new ScenePose(Keys[i],Keys[i+1],t/(double)Durations[i],i<2?"pick":i<4?"raise":i<8?"sip":"lower");
+    t-=Durations[i];
+   }
+   return Rest;
+  }
  }
  internal sealed class FishingCycleState {
   internal const int CastDuration=2050,BiteWindow=3400,DepositAfter=5050,CatchDuration=6050;

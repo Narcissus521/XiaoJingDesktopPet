@@ -19,11 +19,13 @@ namespace XiaoJingDesktopPet {
   private readonly int[] pixels=new int[272*208];
   private Bitmap fishingSurface;
   private BakedWorkMotion workMotion;
+  private readonly PointF[] teaCups;
   internal SceneActionPlayer(string root,string kind,string outfit){
    Kind=kind;Outfit=outfit;Identity=outfit+"|"+kind;folder=Path.Combine(root,kind,outfit);
    Profile=new JavaScriptSerializer().Deserialize<SceneProfile>(File.ReadAllText(Path.Combine(folder,"profile.json")));
    for(int i=0;i<12;i++)using(var b=new Bitmap(Path.Combine(folder,"pose-"+i.ToString("00")+".png")))poses[i]=ScenePixels.Read(b);
    if(kind=="work"&&File.Exists(Path.Combine(folder,"quality-motion.json")))workMotion=new BakedWorkMotion(folder);
+   if(kind=="tea")teaCups=TeaCupLandmarks.For(outfit);
   }
   internal SparseSceneBlend ExitMap(string loop,int pose){return Map(Path.Combine("exit",loop,pose.ToString("00")+".map.gz"));}
   private SparseSceneBlend Map(string name){SparseSceneBlend map;if(!maps.TryGetValue(name,out map)){map=new SparseSceneBlend(Path.Combine(folder,name));maps.Add(name,map);}return map;}
@@ -31,13 +33,20 @@ namespace XiaoJingDesktopPet {
   internal Bitmap Frame(ScenePose pose,long elapsed){
    if(workMotion!=null)workMotion.Render(pose,Smooth(pose.Progress),poses,pixels);
    else if(pose.From==pose.To)Array.Copy(poses[pose.From],pixels,pixels.Length);
+   else if(Kind=="tea"&&Math.Abs(pose.From-pose.To)==1&&Math.Min(pose.From,pose.To)>=4){
+    int first=Math.Min(pose.From,pose.To),last=first+1;
+    double progress=Smooth(pose.From==first?pose.Progress:1-pose.Progress);
+    SparseSceneBlend map=Map(first.ToString("00")+"-"+last.ToString("00")+".map.gz");
+    if(teaCups==null)map.Blend(poses[first],poses[last],progress,pixels);
+    else map.BlendTeaCup(poses[first],poses[last],progress,teaCups[first-4],teaCups[last-4],pixels);
+   }
    else Map(pose.From.ToString("00")+"-"+pose.To.ToString("00")+".map.gz").Blend(poses[pose.From],poses[pose.To],Smooth(pose.Progress),pixels);
    ScenePixels.Write(output,pixels);
    if(Kind=="bubbles")DrawBubbles(elapsed);
    if(Kind=="fishing")return DrawFishing(pose,elapsed);
    return output;
   }
-  internal Bitmap Entry(Image idle,string loop,double progress){ExitMap(loop,0).Blend(poses[0],ScenePixels.Read(idle),1-Smooth(progress),pixels);ScenePixels.Write(output,pixels);return output;}
+  internal Bitmap Entry(Image idle,string loop,double progress){int key=Kind=="tea"?TeaCycleTiming.RestPose:0;ExitMap(loop,key).Blend(poses[key],ScenePixels.Read(idle),1-Smooth(progress),pixels);ScenePixels.Write(output,pixels);return output;}
   internal Bitmap ToIdle(Image current,Image idle,string loop,int pose,double progress){ExitMap(loop,pose).Blend(ScenePixels.Read(current),ScenePixels.Read(idle),Smooth(progress),pixels);ScenePixels.Write(output,pixels);return output;}
   internal Bitmap ToPose(Image current,int from,int to,double progress){if(from==to)Array.Copy(poses[to],pixels,pixels.Length);else Map(from.ToString("00")+"-"+to.ToString("00")+".map.gz").Blend(ScenePixels.Read(current),poses[to],Smooth(progress),pixels);ScenePixels.Write(output,pixels);return output;}
   private PointF RingAt(long time){

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -37,9 +37,8 @@ namespace XiaoJingDesktopPet
         private double[][] feedingFoodPoints;
         private double[][] feedingClosePoints;
         private bool feedingGloved;
-        private readonly int[] feedingFrontPixels=new int[256*208];
-        private readonly bool[] feedingFrontMask=new bool[256*208];
-        private readonly Bitmap feedingFront=new Bitmap(256,208,PixelFormat.Format32bppPArgb);
+        private readonly FeedingDepth feedingDepth;
+        private readonly int[] feedingJawPixels = new int[256 * 208];
         private readonly int[] feedingCarryPixels = new int[272 * 208];
 
         internal CharacterActionPlayer(string root, string outfit)
@@ -55,6 +54,8 @@ namespace XiaoJingDesktopPet
                     poses[index] = ScenePixels.Read(image);
                 }
             foreach (int[] edge in profile.edges) edges.Add(Name(edge[0], edge[1]));
+            string depthPath=Path.Combine(folder,"feeding-depth.bin");
+            if(File.Exists(depthPath)) feedingDepth=new FeedingDepth(depthPath);
             string carryPath=Path.Combine(folder,"feeding-carry.vfi");
             if(File.Exists(carryPath)){
                 var carryProfile=new JavaScriptSerializer().Deserialize<FeedingCarryProfile>(File.ReadAllText(Path.Combine(folder,"feeding-carry.json")));
@@ -122,6 +123,7 @@ namespace XiaoJingDesktopPet
                 feedingCarry.Sample(pose.Progress,feedingCarryPixels);
                 for(int row=0;row<208;row++)Array.Copy(feedingCarryPixels,row*272+8,pixels,row*256,256);
             }else Blend(pose.From==24?9:pose.From,pose.To==24?9:pose.To,pose.Progress);
+            if(pose.Stage=="eat")AnimateFeedingJaw(FeedingCycle.Chew(elapsed));
             // The feeding sequence owns a single clock, independent of the
             // previous idle/work pose and of how often the window was drawn.
             current=target=pose.To==24?9:pose.To;started=-1;cachedAt=-1;idleStarted=-1;
@@ -130,6 +132,7 @@ namespace XiaoJingDesktopPet
 
         internal PointF FeedingPoint(PointF hand, PointF mouth, long elapsed)
         {
+            if(feedingDepth!=null){feedingDepth.Sample(elapsed);return feedingDepth.Support;}
             if(elapsed<FeedingCycle.CloseStart)return hand;
             if(feedingClosePoints!=null&&elapsed<FeedingCycle.CarryStart)return PointAt(feedingClosePoints,FeedingCycle.CloseProgress(elapsed));
             double progress=FeedingCycle.CarryProgress(elapsed);
@@ -145,42 +148,69 @@ namespace XiaoJingDesktopPet
             return new PointF((float)(points[first][0]+(points[next][0]-points[first][0])*p),(float)(points[first][1]+(points[next][1]-points[first][1])*p));
         }
 
-        internal void DrawFeedingFingers(Graphics g,PointF support,float width,float height,long elapsed){
-            double opacity=FeedingCycle.GripOpacity(elapsed);if(opacity<=0)return;
-            Array.Clear(feedingFrontPixels,0,feedingFrontPixels.Length);
-            int left=Math.Max(0,(int)(support.X-width*.55F-2)),right=Math.Min(255,(int)(support.X+width*.55F+2));
-            int top=Math.Max(0,(int)(support.Y-Math.Min(10,height*.6F))),bottom=Math.Min(207,(int)(support.Y+2));
-            var selected=feedingFrontMask;Array.Clear(selected,0,selected.Length);
-            for(int y=top;y<=bottom;y++)for(int x=left;x<=right;x++){
-                int v=pixels[y*256+x],a=(v>>24)&255,r=(v>>16)&255,b=v&255,green=(v>>8)&255;
-                bool skin=a>160&&r>140&&green>100&&r-green>6&&r-b>8;
-                double gloveX=Math.Abs(x-support.X)-7,gloveY=y-support.Y-2;
-                bool mitten=feedingGloved&&gloveX*gloveX/49+gloveY*gloveY/49<=1&&a>200&&r>195&&green>195&&b>195&&Math.Abs(r-green)<35;
-                if((skin||mitten)&&BelowFeedingJaw(x,y))selected[y*256+x]=true;
-            }
-            for(int y=top;y<=bottom;y++)for(int x=left;x<=right;x++){
-                int i=y*256+x;bool front=selected[i]||(x>0&&selected[i-1])||(x<255&&selected[i+1])||(y>0&&selected[i-256])||(y<207&&selected[i+256]);
-                if(front&&BelowFeedingJaw(x,y))feedingFrontPixels[i]=pixels[i];
-            }
-            ScenePixels.Write(feedingFront,feedingFrontPixels);
-            if(opacity>=.999)g.DrawImageUnscaled(feedingFront,8,122);
-            else using(var attributes=new ImageAttributes()){
-                var matrix=new System.Drawing.Imaging.ColorMatrix();matrix.Matrix33=(float)opacity;attributes.SetColorMatrix(matrix);
-                g.DrawImage(feedingFront,new Rectangle(8,122,256,208),0,0,256,208,GraphicsUnit.Pixel,attributes);
-            }
+        private void AnimateFeedingJaw(double amount)
+        {
+            if(amount<=0||feedingFoodPoints==null)return;
+            double[] lip=feedingFoodPoints[feedingFoodPoints.Length-1];
+            int cx=(int)Math.Round(lip[0]), cy=(int)Math.Round(lip[1]-10);
+            Array.Copy(pixels,feedingJawPixels,pixels.Length);
+            for(int y=Math.Max(1,cy-3);y<Math.Min(208,cy+9);y++)
+                for(int x=Math.Max(0,cx-10);x<Math.Min(256,cx+11);x++){
+                    double horizontal=1-Math.Abs(x-cx)/11.0;
+                    double vertical=1-Math.Abs(y-cy-2)/7.0;
+                    int weight=(int)(190*amount*horizontal*Math.Max(0,vertical));
+                    int index=y*256+x;
+                    pixels[index]=MixPixels(feedingJawPixels[index],feedingJawPixels[index-256],weight);
+                }
         }
 
-        private bool BelowFeedingJaw(int x,int y){
-            if(feedingFoodPoints==null)return true;
-            double[] mouth=feedingFoodPoints[feedingFoodPoints.Length-1];
-            // Follow the V-shaped lower jaw, not a horizontal crop across both
-            // hands. The authored endpoint is ten pixels below the lips.
-            return y>=mouth[1]-1-Math.Abs(x-(mouth[0]+3))*.65;
+        private static int MixPixels(int a,int b,int weight)
+        {
+            int result=0;
+            for(int shift=0;shift<=24;shift+=8)
+                result|=((((a>>shift)&255)*(256-weight)+((b>>shift)&255)*weight+128)>>8)<<shift;
+            return result;
+        }
+
+        internal double FeedingHandCover(int x,int y,PointF hand,PointF lips,long elapsed)
+        {
+            if(feedingDepth!=null)return feedingDepth.Coverage(x,y);
+            if(x<1||x>=255||y<1||y>=207)return 0;
+            double dx=x-hand.X,dy=y-hand.Y;
+            double jaw=lips.Y+8-Math.Abs(x-(lips.X+3))*.55;
+            double faceGuard=FeedingCycle.Smooth((y-jaw+1)/3);
+            // Confine the matte to the grip; coat trim and face never become
+            // cutouts painted over the food. Sample adjacent outline pixels.
+            double zoneX=FeedingCycle.Smooth((18-Math.Abs(dx))/4);
+            double zoneY=FeedingCycle.Smooth((dy+10)/3)*FeedingCycle.Smooth((6-dy)/3);
+            if(faceGuard*zoneX*zoneY==0)return 0;
+            int index=y*256+x;
+            double skin=FeedingHandColor(pixels[index]);
+            if(skin<.97){
+                double edge=Math.Max(Math.Max(FeedingHandColor(pixels[index-1]),FeedingHandColor(pixels[index+1])),
+                                     Math.Max(FeedingHandColor(pixels[index-256]),FeedingHandColor(pixels[index+256])));
+                skin=Math.Max(skin,edge*.80);
+            }
+            if(feedingGloved){
+                double fingerX=Math.Abs(dx)-7;
+                double glove=FeedingCycle.Smooth(1.2-(fingerX*fingerX+(dy-1)*(dy-1))/49);
+                int value=pixels[index];
+                if(((value>>24)&255)>210&&(value&255)>165&&((value>>16)&255)>165)
+                    skin=Math.Max(skin,glove);
+            }
+            return skin*zoneX*zoneY*faceGuard*FeedingCycle.GripOpacity(elapsed);
+        }
+
+        private static double FeedingHandColor(int value)
+        {
+            int alpha=(value>>24)&255,red=(value>>16)&255,green=(value>>8)&255,blue=value&255;
+            if(alpha<160||red<125||green<94)return 0;
+            return FeedingCycle.Smooth((Math.Min(red-green,red-blue)-3)/8.0);
         }
 
         public void Dispose() {
             if(feedingCarry!=null)feedingCarry.Dispose();
-            if(feedingClose!=null)feedingClose.Dispose();feedingFront.Dispose();
+            if(feedingClose!=null)feedingClose.Dispose();
             output.Dispose(); maps.Clear();
             }
     }

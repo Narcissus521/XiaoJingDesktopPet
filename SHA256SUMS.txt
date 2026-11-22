@@ -1,1 +1,4 @@
-267c0e39f45d93489739b0aa1137e255d77aa5c24f4652e99a9862c41cbeeba6  XiaoJingDesktopPet-4.0.4-Portable.zip
+39dccf0647481e9fc485e6ab09dda04957caffcb036dfb10f37d2c6e7bcaa0fd  XiaoJingDesktopPet-4.0.6-Portable.zip.001
+be3b356f1d3a52449b62a9728915757684a23c57359c4b625b20168480449d10  XiaoJingDesktopPet-4.0.6-Portable.zip.002
+7227fb7cf465d4acba9aac3a1b80b5163d6c732d61dac894f175d656890e4c41  XiaoJingDesktopPet-4.0.6-Portable.zip.003
+cf890171595ced7a28d3ffbceefa81bbf8bf81d79d2ce3ca131b67177e38f469  XiaoJingDesktopPet-4.0.6-Portable.zip

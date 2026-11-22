@@ -5,7 +5,13 @@ namespace XiaoJingDesktopPet {
   internal static double Smooth(double p){p=Math.Max(0,Math.Min(1,p));return p*p*(3-2*p);}
   internal static double CarryProgress(long elapsed){return Smooth((elapsed-CarryStart)/(double)(CarryEnd-CarryStart));}
   internal static double CloseProgress(long elapsed){return Smooth((elapsed-CloseStart)/(double)(CloseEnd-CloseStart));}
-  internal static double GripOpacity(long elapsed){return elapsed<CloseStart?0:elapsed>=CloseEnd?1:Smooth((CloseProgress(elapsed)-.2)/.3);}
+  internal const int FirstBite=2690, SecondBite=3060;
+  internal static double GripOpacity(long elapsed){return Smooth((elapsed-635)/420.0);}
+  internal static double Chew(long elapsed){
+   double phase=(elapsed-FirstBite)/175.0;
+   if(phase<0||elapsed>=3500)return 0;
+   return Math.Pow(Math.Sin(phase*Math.PI),2)*Smooth(phase*3)*Smooth((3500-elapsed)/170.0);
+  }
   internal static ScenePose At(long elapsed){
    if(elapsed<400)return new ScenePose(8,9,Smooth(elapsed/400.0),"receive");
    if(elapsed<CloseStart)return new ScenePose(9,9,0,"receive");
@@ -18,12 +24,6 @@ namespace XiaoJingDesktopPet {
    if(elapsed<4360)return new ScenePose(11,12,Smooth((elapsed-4100)/260.0),"happy");
    if(elapsed<5000)return new ScenePose(12,12,0,"happy");
    return new ScenePose(12,8,Smooth((elapsed-5000)/400.0),"finish");
-  }
-  internal static float FoodScale(long elapsed){
-   if(elapsed<2750)return .85F;
-   if(elapsed<2950)return .85F-.30F*(float)Smooth((elapsed-2750)/200.0);
-   if(elapsed<3070)return .55F;
-   return .55F*(1-(float)Smooth((elapsed-3070)/230.0));
   }
  }
 }

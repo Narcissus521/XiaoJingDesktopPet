@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -9,8 +9,8 @@ using System.Windows.Forms;
 using System.Web.Script.Serialization;
 
 [assembly: System.Reflection.AssemblyTitle("XiaoJing Desktop Pet")]
-[assembly: System.Reflection.AssemblyVersion("4.0.4.0")]
-[assembly: System.Reflection.AssemblyFileVersion("4.0.4.0")]
+[assembly: System.Reflection.AssemblyVersion("4.0.6.0")]
+[assembly: System.Reflection.AssemblyFileVersion("4.0.6.0")]
 
 namespace XiaoJingDesktopPet
 {
